@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>json2go</title>
+    <link rel="shortcut icon" href="/json2go/bootstrap/favicon.ico">
+    <link href="/json2go/bootstrap/bootstrap.min.css" rel="stylesheet">
+    <link href="/json2go/codemirror/codemirror.css" rel="stylesheet">
+    <link href="/json2go/codemirror/fold/foldgutter.css" rel="stylesheet">
+    <link href="/json2go/codemirror/scroll/simplescrollbars.css" rel="stylesheet">
+    <style>
+        html, body {
+            height: 100%;
+        }
+
+        .mycode, .mycode > div, #input, #output {
+            height: 95%;
+        }
+
+        .CodeMirror {
+            height: 100%;
+        }
+
+        body > div {
+            /*去掉body的横向滚动条*/
+            width: 99%
+        }
+
+        .mycode > div {
+            margin: 10px;
+            width: 48%;
+        }
+
+        .mymenu {
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+<div class="container-fluid">
+    <div class="row justify-content-evenly" style="margin: 10px">
+        <div class="col-12 mymenu">
+            <div class="form-check form-check-inline col-1">
+                <button id="generate" type="button" class="btn btn-primary">生成</button>
+            </div>
+            <label class="form-check-label">Tag：</label>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="checkbox" id="jsonTag" value="json" disabled checked>
+                <label class="form-check-label" for="jsonTag">json</label>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="checkbox" id="bsonTag" value="bson">
+                <label class="form-check-label" for="bsonTag">bson</label>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="checkbox" id="mapstructureTag" value="mapstructure">
+                <label class="form-check-label" for="mapstructureTag">mapstructure</label>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="checkbox" id="yamlTag" value="yaml">
+                <label class="form-check-label" for="yamlTag">yaml</label>
+            </div>
+            <div class="form-check form-check-inline col-3">
+                <input type="text" class="form-control" id="customTag" placeholder="custom tags, separated by commas"
+                       aria-label="custom tags, separated by commas" aria-describedby="inputGroup-sizing-sm">
+            </div>
+            <label class="form-check-label">Comment：</label>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="commentRadio" id="inlineRadio1" value="true" checked>
+                <label class="form-check-label" for="inlineRadio1">yes</label>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="commentRadio" id="inlineRadio2" value="false">
+                <label class="form-check-label" for="inlineRadio2">no</label>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="row mycode">
+    <div class="col">
+        <label class="form-check-label">json</label>
+        <div class="form-check form-check-inline col-3" style="margin: 0;width: 18%">
+            <button id="jsonFormat" type="button" class="btn btn-secondary">格式化</button>
+        </div>
+        <div class="form-check form-check-inline col-3" style="margin: 0;width: 18%">
+            <button id="jsonFormatNoComment" type="button" class="btn btn-secondary">去注释</button>
+        </div>
+        <label class="form-check-label" id="jsonTips"></label>
+        <div id="input">
+        </div>
+    </div>
+    <div class="col">
+        <label class="form-check-label">go</label>
+        <div id="output">
+        </div>
+    </div>
+</div>
+<script src="/json2go/bootstrap/bootstrap.min.js"></script>
+<script src="/json2go/codemirror/codemirror.min.js"></script>
+<script src="/json2go/codemirror/mode/javascript.js"></script>
+<script src="/json2go/codemirror/mode/go.js"></script>
+<script src="/json2go/codemirror/scroll/simplescrollbars.js"></script>
+<script src="/json2go/codemirror/fold/foldcode.js"></script>
+<script src="/json2go/codemirror/fold/foldgutter.js"></script>
+<script src="/json2go/codemirror/fold/brace-fold.js"></script>
+<script src="/json2go/codemirror/fold/comment-fold.js"></script>
+<script src="/json2go/codemirror/fold/indent-fold.js"></script>
+
+<script src="/json2go/json5/index.min.js"></script>
+<script src="/json2go/jsbeautify/beautify.min.js"></script>
+<script src="/json2go/wasm_exec.js"></script>
+<script>
+    var input = CodeMirror(document.getElementById("input"), {
+        mode: "application/json",
+        lineNumbers: true,
+        scrollbarStyle: "simple",
+        foldGutter: true,
+        gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],
+        foldOptions: {
+            widget: (from, to) => {
+                var count = undefined;
+
+                // Get open / close token
+                var prevLine = input.getLine(from.line);
+                var startToken = '{', endToken = '}';
+                if (prevLine.indexOf("[") > -1) {
+                    // 判断为数组
+                    startToken = '[', endToken = ']';
+                }
+                // Get json content
+                var internal = input.getRange(from, to);
+                var toParse = startToken + internal + endToken;
+                // Get key count
+                try {
+                    var parsed = JSON5.parse(toParse);
+                    count = Object.keys(parsed).length;
+                } catch (e) {
+                }
+
+                return count ? `\u21A4${count}\u21A6` : '\u2194';
+            }
+        }
+    });
+
+    var output = CodeMirror(document.getElementById("output"), {
+        mode: "text/x-go",
+        lineNumbers: true,
+        scrollbarStyle: "simple",
+    });
+
+    function formatJSON() {
+        let value = input.getValue();
+        try {
+            JSON5.parse(value)
+            value = js_beautify(value, {
+                indent_with_tabs: true,
+                preserve_newlines: false
+            });
+            input.setValue(value)
+            document.getElementById("jsonTips").innerHTML = ""
+        } catch (err) {
+            document.getElementById("jsonTips").innerHTML = "<span style='color: red;'>" + err.message + "</span>"
+        }
+    }
+
+    function formatJSONNoComments() {
+        let value = input.getValue();
+        try {
+            var jsonObj = JSON5.parse(value)
+            value = JSON.stringify(jsonObj);
+            value = js_beautify(value, {
+                indent_with_tabs: true,
+                preserve_newlines: false
+            });
+            input.setValue(value)
+            document.getElementById("jsonTips").innerHTML = ""
+        } catch (err) {
+            document.getElementById("jsonTips").innerHTML = "<span style='color: red;'>" + err.message + "</span>"
+        }
+    }
+
+    function getRadioValue(name) {
+        var radioButtons = document.getElementsByName(name);
+        var selectedRadioButton = null;
+        for (var i = 0; i < radioButtons.length; i++) {
+            if (radioButtons[i].checked) {
+                selectedRadioButton = radioButtons[i];
+                break;
+            }
+        }
+        // 读取选中的单选按钮的值
+        return selectedRadioButton.value
+    }
+
+    function process() {
+        let value = input.getValue();
+        try {
+            JSON5.parse(value)
+        } catch (err) {
+            output.setValue(err.message)
+            return
+        }
+        value = js_beautify(value, {
+            indent_with_tabs: true,
+            preserve_newlines: false
+        });
+        console.log("format" + value)
+        var param = {
+            jsonTag: document.getElementById("jsonTag").value,
+        }
+        if (document.getElementById("bsonTag").checked) {
+            param.bsonTag = document.getElementById("bsonTag").value
+        }
+        if (document.getElementById("mapstructureTag").checked) {
+            param.mapstructureTag = document.getElementById("mapstructureTag").value
+        }
+        if (document.getElementById("yamlTag").checked) {
+            param.yamlTag = document.getElementById("yamlTag").value
+        }
+        param.customTag = document.getElementById("customTag").value
+        param.jsonStr = value
+        param.commentFlag = getRadioValue("commentRadio")
+        let res = Json2GoGen(param)
+        console.log("output:" + JSON.stringify(res))
+        if (res.code === 0) {
+            output.setValue(res.data)
+        } else {
+            output.setValue(res.message)
+        }
+    }
+
+    function demo() {
+        var json = `{
+	// 1.支持单行备注提取，可在上一行或行尾
+	"k1": "v1",
+	"k2": "v2", // 行尾备注
+	"k3": {
+		"k3_1": {
+			"k3_1_1": "" // 递归解析备注
+		}
+	},
+	"k4": [{ // 数组类型备注
+		"k41": ""
+	}, {
+		"k41": "" // 备注合并
+	}],
+	// 2.支持属性名格式化，支持中文
+	"地址": "山东枣庄",
+	"地质": "中文解析后重名了，自动数字编号",
+	"中文++))": "自动忽略不识别的字符",
+	"id": "golint代码检查优化",
+	"user_name": "",
+	"3只松鼠": "",
+	// 3.支持属性类型推断，单独属性，数组内属性，同名对象属性
+	"float": 1.15,
+	"arrayFloat": [1, 2.1],
+	"arrayObjFloat1": [{
+		"cost": 10
+	}, {
+		"cost": 10.2
+	}],
+	"arrayObjFloat2": [
+		[{
+			"cost": 10
+		}, {
+			"cost": 10.2
+		}]
+	],
+	// 4.支持对象属性合并，重名的所有对象，包括数组内所有对象
+	"questionArray": [{
+			"type": "select",
+			"props": {
+				"info": ""
+			},
+			"options": [],
+			"other": null
+		},
+		{
+			"type": "select",
+			"props": {
+				"info": "",
+				"value": ""
+			},
+			"options": [{
+				"label": "",
+				"value": ""
+			}],
+			"other": "",
+			"required": false
+		}
+	]
+}`
+        input.setValue(json)
+        process()
+    }
+
+    function processClick() {
+        demo()
+        document.getElementById("generate").onclick = function () {
+            process()
+        }
+        document.getElementById("jsonFormat").onclick = function () {
+            formatJSON()
+        }
+        document.getElementById("jsonFormatNoComment").onclick = function () {
+            formatJSONNoComments()
+        }
+    }
+
+    const go = new Go();
+    // syscall/js.finalizeRef not implemented
+    // https://github.com/tinygo-org/tinygo/issues/1140
+    go.importObject.env["syscall/js.finalizeRef"] = () => {
+    };
+    const WASM_URL = '/json2go/main.wasm';
+    var wasm;
+    if ('instantiateStreaming' in WebAssembly) {
+        WebAssembly.instantiateStreaming(fetch(WASM_URL), go.importObject).then(function (obj) {
+            wasm = obj.instance;
+            go.run(wasm);
+            processClick()
+        })
+    } else {
+        fetch(WASM_URL).then(resp =>
+            resp.arrayBuffer()
+        ).then(bytes =>
+            WebAssembly.instantiate(bytes, go.importObject).then(function (obj) {
+                wasm = obj.instance;
+                go.run(wasm);
+                processClick()
+            })
+        )
+    }
+</script>
+</body>
+</html>
