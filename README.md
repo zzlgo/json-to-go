@@ -2,11 +2,11 @@
 
 ## Introduction
 
-将json直接转为go对象，支持备注，自定义tag，中文属性，属性类型推断，属性合并等功能，并提供简单易用的web界面
+将json直接转为go结构体，支持备注，自定义tag，中文属性，属性类型推断，属性合并等功能，并提供简单易用的web界面
 
 ## Web
 
-json2go地址（chrome）: https://zzlgo.github.io/json2go
+在线地址(chrome): https://zzlgo.github.io/json2go
 
 ## Features
 
