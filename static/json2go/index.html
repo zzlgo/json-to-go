@@ -35,16 +35,18 @@
         .mymenu {
             text-align: center;
         }
+
+        .mymenu .form-check-inline {
+            padding-left: 12px;
+        }
+
     </style>
 </head>
 <body>
 <div class="container-fluid">
-    <div class="row justify-content-evenly" style="margin: 10px">
+    <div class="row justify-content-evenly" style="padding: 10px;background-color: #f7f7f7">
         <div class="col-12 mymenu">
-            <div class="form-check form-check-inline col-1">
-                <button id="generate" type="button" class="btn btn-primary">生成</button>
-            </div>
-            <label class="form-check-label">Tag：</label>
+            <label class="form-check-label" style="margin-left: 20px">Tag：</label>
             <div class="form-check form-check-inline">
                 <input class="form-check-input" type="checkbox" id="jsonTag" value="json" disabled checked>
                 <label class="form-check-label" for="jsonTag">json</label>
@@ -53,26 +55,37 @@
                 <input class="form-check-input" type="checkbox" id="bsonTag" value="bson">
                 <label class="form-check-label" for="bsonTag">bson</label>
             </div>
-            <div class="form-check form-check-inline">
+            <div class="form-check form-check-inline" style="margin-right: 8px">
                 <input class="form-check-input" type="checkbox" id="mapstructureTag" value="mapstructure">
                 <label class="form-check-label" for="mapstructureTag">mapstructure</label>
             </div>
-            <div class="form-check form-check-inline">
-                <input class="form-check-input" type="checkbox" id="yamlTag" value="yaml">
-                <label class="form-check-label" for="yamlTag">yaml</label>
+            <div class="form-check form-check-inline customTag" style="padding-left: 0;width: 20%">
+                <input type="text" class="form-control" placeholder="自定义tag，多个以英文逗号隔开"
+                       aria-label="自定义tag，多个以英文逗号隔开" aria-describedby="inputGroup-sizing-sm" id="customTag"
+                       style="padding: 0">
             </div>
-            <div class="form-check form-check-inline col-3">
-                <input type="text" class="form-control" id="customTag" placeholder="custom tags, separated by commas"
-                       aria-label="custom tags, separated by commas" aria-describedby="inputGroup-sizing-sm">
-            </div>
-            <label class="form-check-label">Comment：</label>
+            <label class="form-check-label" style="margin-left: 20px">Comment：</label>
             <div class="form-check form-check-inline">
-                <input class="form-check-input" type="radio" name="commentRadio" id="inlineRadio1" value="true" checked>
-                <label class="form-check-label" for="inlineRadio1">yes</label>
+                <input class="form-check-input" type="radio" name="commentRadio" id="commentRadio1" value="true"
+                       checked>
+                <label class="form-check-label" for="commentRadio1">yes</label>
             </div>
             <div class="form-check form-check-inline">
-                <input class="form-check-input" type="radio" name="commentRadio" id="inlineRadio2" value="false">
-                <label class="form-check-label" for="inlineRadio2">no</label>
+                <input class="form-check-input" type="radio" name="commentRadio" id="commentRadio2" value="false">
+                <label class="form-check-label" for="commentRadio2">no</label>
+            </div>
+            <label class="form-check-label" style="margin-left: 20px">Pointer：</label>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="pointerRadio" id="pointerRadio1" value="true">
+                <label class="form-check-label" for="pointerRadio1">yes</label>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="pointerRadio" id="pointerRadio2" value="false"
+                       checked>
+                <label class="form-check-label" for="pointerRadio2">no</label>
+            </div>
+            <div class="form-check form-check-inline col-1">
+                <button id="generate" type="button" class="btn btn-primary">生成</button>
             </div>
         </div>
     </div>
@@ -215,12 +228,10 @@
         if (document.getElementById("mapstructureTag").checked) {
             param.mapstructureTag = document.getElementById("mapstructureTag").value
         }
-        if (document.getElementById("yamlTag").checked) {
-            param.yamlTag = document.getElementById("yamlTag").value
-        }
         param.customTag = document.getElementById("customTag").value
         param.jsonStr = value
         param.commentFlag = getRadioValue("commentRadio")
+        param.pointerFlag = getRadioValue("pointerRadio")
         let res = Json2GoGen(param)
         console.log("output:" + JSON.stringify(res))
         if (res.code === 0) {

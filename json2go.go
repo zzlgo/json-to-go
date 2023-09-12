@@ -3,13 +3,14 @@ package json2go
 import (
 	"bytes"
 	"fmt"
-	"github.com/Lofanmi/pinyin-golang/pinyin"
-	"github.com/tidwall/gjson"
 	"go/format"
 	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/Lofanmi/pinyin-golang/pinyin"
+	"github.com/tidwall/gjson"
 )
 
 // 整体大类型
@@ -100,20 +101,29 @@ var commonInitialisms = map[string]struct{}{
 	"XSS":   {},
 }
 
+type Config struct {
+	// tags
+	Tags []string
+	// 是否解析备注
+	CommentFlag bool
+	// 是否使用指针
+	PointerFlag bool
+}
+
 // json字符串转对象，在前端进行了json5格式验证和格式化
-func Generate(jsonStr string, tags []string, commentFlag bool) (string, error) {
+func Generate(jsonStr string, config *Config) (string, error) {
 	// 解析JSON
 	parsedJson := gjson.Parse(jsonStr)
 	all := make([]*Obj, 0)
 	if parsedJson.IsArray() {
 		parsedJson.ForEach(func(key, value gjson.Result) bool {
 			if value.IsObject() {
-				Ite(&all, DefaultName, gjson.Parse(value.Raw), commentFlag)
+				Ite(&all, DefaultName, gjson.Parse(value.Raw), config.CommentFlag)
 			}
 			return true
 		})
 	} else {
-		Ite(&all, DefaultName, parsedJson, commentFlag)
+		Ite(&all, DefaultName, parsedJson, config.CommentFlag)
 	}
 	// 合并多个name相同的对象，并且格式化数据类型
 	all = mergeAndFormatObj(all)
@@ -130,7 +140,7 @@ func Generate(jsonStr string, tags []string, commentFlag bool) (string, error) {
 			if e.C != "" {
 				buff.WriteString(e.C + "\n")
 			}
-			buff.WriteString(fmt.Sprintf("%s %s %s\n", formatKey(nameMap, nameCount, e.K), formatType(nameMap, nameCount, e.V, e.T), formatTag(e.K, tags)))
+			buff.WriteString(fmt.Sprintf("%s %s %s\n", formatKey(nameMap, nameCount, e.K), formatType(nameMap, nameCount, e.V, e.T, config.PointerFlag), formatTag(e.K, config.Tags)))
 		}
 		if i == len(all)-1 {
 			buff.WriteString("}")
@@ -439,14 +449,18 @@ func convert2Pinyin(s string) string {
 	return strings.ToLower(s)
 }
 
-func formatType(nameMap map[string]string, nameCount map[string]int, v string, t string) string {
+func formatType(nameMap map[string]string, nameCount map[string]int, v string, t string, pointerFlag bool) string {
 	result := v
+	pointer := ""
+	if pointerFlag {
+		pointer = "*"
+	}
 	if t == O {
-		result = formatKey(nameMap, nameCount, v)
+		result = pointer + formatKey(nameMap, nameCount, v)
 	} else if t == O1 {
-		result = "[]" + formatKey(nameMap, nameCount, v)
+		result = "[]" + pointer + formatKey(nameMap, nameCount, v)
 	} else if t == O2 {
-		result = "[][]" + formatKey(nameMap, nameCount, v)
+		result = "[][]" + pointer + formatKey(nameMap, nameCount, v)
 	} else if t == V1 {
 		result = "[]" + v
 	} else if t == V2 {

@@ -15,10 +15,11 @@ func main() {
 }
 
 func Json2GoGen(this js.Value, args []js.Value) interface{} {
+	config := json2go.Config{}
 	jsonValue := args[0]
 	jsonStr := getStringVue(jsonValue, "jsonStr")
 	var tags []string
-	for _, t := range []string{"jsonTag", "bsonTag", "yamlTag", "mapstructureTag", "customTag"} {
+	for _, t := range []string{"jsonTag", "bsonTag", "mapstructureTag", "customTag"} {
 		tagValue := getStringVue(jsonValue, t)
 		if tagValue != "" {
 			if strings.Contains(tagValue, ",") {
@@ -29,12 +30,16 @@ func Json2GoGen(this js.Value, args []js.Value) interface{} {
 			}
 		}
 	}
-	flag := false
+	config.Tags = tags
 	commentFlag := getStringVue(jsonValue, "commentFlag")
 	if commentFlag == "true" {
-		flag = true
+		config.CommentFlag = true
 	}
-	generate, err := json2go.Generate(jsonStr, tags, flag)
+	pointerFlag := getStringVue(jsonValue, "pointerFlag")
+	if pointerFlag == "true" {
+		config.PointerFlag = true
+	}
+	generate, err := json2go.Generate(jsonStr, &config)
 	if err != nil {
 		return map[string]interface{}{
 			"code":    500,
