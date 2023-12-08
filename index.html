@@ -3,12 +3,12 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>json2go</title>
-    <link rel="shortcut icon" href="/json2go/bootstrap/favicon.ico">
-    <link href="/json2go/bootstrap/bootstrap.min.css" rel="stylesheet">
-    <link href="/json2go/codemirror/codemirror.css" rel="stylesheet">
-    <link href="/json2go/codemirror/fold/foldgutter.css" rel="stylesheet">
-    <link href="/json2go/codemirror/scroll/simplescrollbars.css" rel="stylesheet">
+    <title>json-to-go</title>
+    <link rel="shortcut icon" href="/json-to-go/bootstrap/favicon.ico">
+    <link href="/json-to-go/bootstrap/bootstrap.min.css" rel="stylesheet">
+    <link href="/json-to-go/codemirror/codemirror.css" rel="stylesheet">
+    <link href="/json-to-go/codemirror/fold/foldgutter.css" rel="stylesheet">
+    <link href="/json-to-go/codemirror/scroll/simplescrollbars.css" rel="stylesheet">
     <style>
         html, body {
             height: 100%;
@@ -39,14 +39,13 @@
         .mymenu .form-check-inline {
             padding-left: 12px;
         }
-
     </style>
 </head>
 <body>
 <div class="container-fluid">
     <div class="row justify-content-evenly" style="padding: 10px;background-color: #f7f7f7">
         <div class="col-12 mymenu">
-            <label class="form-check-label" style="margin-left: 20px">Tag：</label>
+            <label class="form-check-label" style="margin-left: 20px">标签：</label>
             <div class="form-check form-check-inline">
                 <input class="form-check-input" type="checkbox" id="jsonTag" value="json" disabled checked>
                 <label class="form-check-label" for="jsonTag">json</label>
@@ -59,30 +58,43 @@
                 <input class="form-check-input" type="checkbox" id="mapstructureTag" value="mapstructure">
                 <label class="form-check-label" for="mapstructureTag">mapstructure</label>
             </div>
-            <div class="form-check form-check-inline customTag" style="padding-left: 0;width: 20%">
-                <input type="text" class="form-control" placeholder="自定义tag，多个以英文逗号隔开"
-                       aria-label="自定义tag，多个以英文逗号隔开" aria-describedby="inputGroup-sizing-sm" id="customTag"
+            <div class="form-check form-check-inline customTag" style="padding-left: 0;width: 16%">
+                <input type="text" class="form-control" placeholder="自定义，多个以英文逗号隔开"
+                       aria-label="自定义，多个以英文逗号隔开" aria-describedby="inputGroup-sizing-sm" id="customTag"
                        style="padding: 0">
             </div>
-            <label class="form-check-label" style="margin-left: 20px">Comment：</label>
+            <label class="form-check-label" style="margin-left: 20px">嵌套：</label>
             <div class="form-check form-check-inline">
-                <input class="form-check-input" type="radio" name="commentRadio" id="commentRadio1" value="true"
+                <input class="form-check-input" type="radio" name="nestRadio" id="nestRadio1" value="true">
+                <label class="form-check-label" for="nestRadio1">Y</label>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="nestRadio" id="nestRadio2" value="false"
                        checked>
-                <label class="form-check-label" for="commentRadio1">yes</label>
+                <label class="form-check-label" for="nestRadio2">N</label>
+            </div>
+            <label class="form-check-label" style="margin-left: 20px">注释：</label>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="commentRadio" id="commentRadio1" value="0">
+                <label class="form-check-label" for="commentRadio1">无</label>
             </div>
             <div class="form-check form-check-inline">
-                <input class="form-check-input" type="radio" name="commentRadio" id="commentRadio2" value="false">
-                <label class="form-check-label" for="commentRadio2">no</label>
+                <input class="form-check-input" type="radio" name="commentRadio" id="commentRadio2" value="1" checked>
+                <label class="form-check-label" for="commentRadio2">单行</label>
             </div>
-            <label class="form-check-label" style="margin-left: 20px">Pointer：</label>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="commentRadio" id="commentRadio3" value="2">
+                <label class="form-check-label" for="commentRadio3">行尾</label>
+            </div>
+            <label class="form-check-label" style="margin-left: 20px">指针：</label>
             <div class="form-check form-check-inline">
                 <input class="form-check-input" type="radio" name="pointerRadio" id="pointerRadio1" value="true">
-                <label class="form-check-label" for="pointerRadio1">yes</label>
+                <label class="form-check-label" for="pointerRadio1">Y</label>
             </div>
             <div class="form-check form-check-inline">
                 <input class="form-check-input" type="radio" name="pointerRadio" id="pointerRadio2" value="false"
                        checked>
-                <label class="form-check-label" for="pointerRadio2">no</label>
+                <label class="form-check-label" for="pointerRadio2">N</label>
             </div>
             <div class="form-check form-check-inline col-1">
                 <button id="generate" type="button" class="btn btn-primary">生成</button>
@@ -93,11 +105,20 @@
 <div class="row mycode">
     <div class="col">
         <label class="form-check-label">json</label>
-        <div class="form-check form-check-inline col-3" style="margin: 0;width: 18%">
+        <div class="form-check form-check-inline col-2" style="width: 18%;padding-left: 5px;margin-right: 0">
             <button id="jsonFormat" type="button" class="btn btn-secondary">格式化</button>
         </div>
-        <div class="form-check form-check-inline col-3" style="margin: 0;width: 18%">
+        <div class="form-check form-check-inline col-2" style="width: 18%;padding-left: 5px;margin-right: 0">
             <button id="jsonFormatNoComment" type="button" class="btn btn-secondary">去注释</button>
+        </div>
+        <div class="form-check form-check-inline col-2" style="width: 18%;padding-left: 5px;margin-right: 0">
+            <button id="jsonCompress" type="button" class="btn btn-secondary">压缩</button>
+        </div>
+        <div class="form-check form-check-inline col-2" style="width: 18%;padding-left: 5px;margin-right: 0">
+            <button id="jsonEscape" type="button" class="btn btn-secondary">转义</button>
+        </div>
+        <div class="form-check form-check-inline col-2" style="width: 18%;padding-left: 5px;margin-right: 0">
+            <button id="jsonNoEscape" type="button" class="btn btn-secondary">去转义</button>
         </div>
         <label class="form-check-label" id="jsonTips"></label>
         <div id="input">
@@ -109,20 +130,20 @@
         </div>
     </div>
 </div>
-<script src="/json2go/bootstrap/bootstrap.min.js"></script>
-<script src="/json2go/codemirror/codemirror.min.js"></script>
-<script src="/json2go/codemirror/mode/javascript.js"></script>
-<script src="/json2go/codemirror/mode/go.js"></script>
-<script src="/json2go/codemirror/scroll/simplescrollbars.js"></script>
-<script src="/json2go/codemirror/fold/foldcode.js"></script>
-<script src="/json2go/codemirror/fold/foldgutter.js"></script>
-<script src="/json2go/codemirror/fold/brace-fold.js"></script>
-<script src="/json2go/codemirror/fold/comment-fold.js"></script>
-<script src="/json2go/codemirror/fold/indent-fold.js"></script>
+<script src="/json-to-go/bootstrap/bootstrap.min.js"></script>
+<script src="/json-to-go/codemirror/codemirror.min.js"></script>
+<script src="/json-to-go/codemirror/mode/javascript.js"></script>
+<script src="/json-to-go/codemirror/mode/go.js"></script>
+<script src="/json-to-go/codemirror/scroll/simplescrollbars.js"></script>
+<script src="/json-to-go/codemirror/fold/foldcode.js"></script>
+<script src="/json-to-go/codemirror/fold/foldgutter.js"></script>
+<script src="/json-to-go/codemirror/fold/brace-fold.js"></script>
+<script src="/json-to-go/codemirror/fold/comment-fold.js"></script>
+<script src="/json-to-go/codemirror/fold/indent-fold.js"></script>
 
-<script src="/json2go/json5/index.min.js"></script>
-<script src="/json2go/jsbeautify/beautify.min.js"></script>
-<script src="/json2go/wasm_exec.js"></script>
+<script src="/json-to-go/json5/index.min.js"></script>
+<script src="/json-to-go/jsbeautify/beautify.min.js"></script>
+<script src="/json-to-go/wasm_exec.js"></script>
 <script>
     var input = CodeMirror(document.getElementById("input"), {
         mode: "application/json",
@@ -165,12 +186,12 @@
     function formatJSON() {
         let value = input.getValue();
         try {
-            JSON5.parse(value)
             value = js_beautify(value, {
                 indent_with_tabs: true,
                 preserve_newlines: false
             });
             input.setValue(value)
+            JSON5.parse(value)
             document.getElementById("jsonTips").innerHTML = ""
         } catch (err) {
             document.getElementById("jsonTips").innerHTML = "<span style='color: red;'>" + err.message + "</span>"
@@ -193,6 +214,40 @@
         }
     }
 
+    function formatJSONCompress() {
+        let value = input.getValue();
+        try {
+            var jsonObj = JSON5.parse(value)
+            value = JSON.stringify(jsonObj);
+            input.setValue(value)
+            document.getElementById("jsonTips").innerHTML = ""
+        } catch (err) {
+            document.getElementById("jsonTips").innerHTML = "<span style='color: red;'>" + err.message + "</span>"
+        }
+    }
+
+    function formatJSONEscape() {
+        let value = input.getValue();
+        try {
+            value = value.replace(/\\/g, "\\\\").replace(/\"/g, "\\\"");
+            input.setValue(value)
+            document.getElementById("jsonTips").innerHTML = ""
+        } catch (err) {
+            document.getElementById("jsonTips").innerHTML = "<span style='color: red;'>" + err.message + "</span>"
+        }
+    }
+
+    function formatJSONNoEscape() {
+        let value = input.getValue();
+        try {
+            value = value.replace(/\\\\/g, "\\").replace(/\\\"/g, '\"');
+            input.setValue(value)
+            document.getElementById("jsonTips").innerHTML = ""
+        } catch (err) {
+            document.getElementById("jsonTips").innerHTML = "<span style='color: red;'>" + err.message + "</span>"
+        }
+    }
+
     function getRadioValue(name) {
         var radioButtons = document.getElementsByName(name);
         var selectedRadioButton = null;
@@ -207,18 +262,19 @@
     }
 
     function process() {
+        document.getElementById("generate").disabled = true
         let value = input.getValue();
         try {
             JSON5.parse(value)
         } catch (err) {
             output.setValue(err.message)
+            document.getElementById("generate").disabled = false
             return
         }
         value = js_beautify(value, {
             indent_with_tabs: true,
             preserve_newlines: false
         });
-        console.log("format" + value)
         var param = {
             jsonTag: document.getElementById("jsonTag").value,
         }
@@ -230,15 +286,16 @@
         }
         param.customTag = document.getElementById("customTag").value
         param.jsonStr = value
-        param.commentFlag = getRadioValue("commentRadio")
+        param.comment = getRadioValue("commentRadio")
         param.pointerFlag = getRadioValue("pointerRadio")
-        let res = Json2GoGen(param)
-        console.log("output:" + JSON.stringify(res))
+        param.nestFlag = getRadioValue("nestRadio")
+        let res = JsonToGoGen(param)
         if (res.code === 0) {
             output.setValue(res.data)
         } else {
             output.setValue(res.message)
         }
+        document.getElementById("generate").disabled = false
     }
 
     function demo() {
@@ -263,7 +320,7 @@
 	"id": "golint代码检查优化",
 	"user_name": "",
 	"3只松鼠": "",
-	// 3.支持属性类型推断，单独属性，数组内属性，同名对象属性
+	// 3.支持属性类型推断
 	"float": 1.15,
 	"arrayFloat": [1, 2.1],
 	"arrayObjFloat1": [{
@@ -278,7 +335,7 @@
 			"cost": 10.2
 		}]
 	],
-	// 4.支持对象属性合并，重名的所有对象，包括数组内所有对象
+	// 4.支持对象属性合并
 	"questionArray": [{
 			"type": "select",
 			"props": {
@@ -317,6 +374,15 @@
         document.getElementById("jsonFormatNoComment").onclick = function () {
             formatJSONNoComments()
         }
+        document.getElementById("jsonCompress").onclick = function () {
+            formatJSONCompress()
+        }
+        document.getElementById("jsonEscape").onclick = function () {
+            formatJSONEscape()
+        }
+        document.getElementById("jsonNoEscape").onclick = function () {
+            formatJSONNoEscape()
+        }
     }
 
     const go = new Go();
@@ -324,7 +390,7 @@
     // https://github.com/tinygo-org/tinygo/issues/1140
     go.importObject.env["syscall/js.finalizeRef"] = () => {
     };
-    const WASM_URL = '/json2go/main.wasm';
+    const WASM_URL = '/json-to-go/main.wasm';
     var wasm;
     if ('instantiateStreaming' in WebAssembly) {
         WebAssembly.instantiateStreaming(fetch(WASM_URL), go.importObject).then(function (obj) {
