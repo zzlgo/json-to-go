@@ -106,10 +106,10 @@
     <div class="col">
         <label class="form-check-label">json</label>
         <div class="form-check form-check-inline col-2" style="width: 18%;padding-left: 5px;margin-right: 0">
-            <button id="jsonFormat" type="button" class="btn btn-secondary">格式化</button>
+            <button id="jsonFormatWithComment" type="button" class="btn btn-secondary">美化</button>
         </div>
         <div class="form-check form-check-inline col-2" style="width: 18%;padding-left: 5px;margin-right: 0">
-            <button id="jsonFormatNoComment" type="button" class="btn btn-secondary">去注释</button>
+            <button id="jsonFormat" type="button" class="btn btn-secondary">格式化</button>
         </div>
         <div class="form-check form-check-inline col-2" style="width: 18%;padding-left: 5px;margin-right: 0">
             <button id="jsonCompress" type="button" class="btn btn-secondary">压缩</button>
@@ -186,32 +186,35 @@
     function formatJSON() {
         let value = input.getValue();
         try {
-            value = js_beautify(value, {
-                indent_with_tabs: true,
-                preserve_newlines: false
-            });
+            var jsonObj = JSON5.parse(value)
+            value = JSON.stringify(jsonObj, null, "  ");
             input.setValue(value)
-            JSON5.parse(value)
             document.getElementById("jsonTips").innerHTML = ""
         } catch (err) {
             document.getElementById("jsonTips").innerHTML = "<span style='color: red;'>" + err.message + "</span>"
         }
     }
 
-    function formatJSONNoComments() {
+    function formatJSONWithComment() {
         let value = input.getValue();
         try {
-            var jsonObj = JSON5.parse(value)
-            value = JSON.stringify(jsonObj);
-            value = js_beautify(value, {
-                indent_with_tabs: true,
-                preserve_newlines: false
-            });
+            JSON5.parse(value)
+            value = beautifyJSONStr(value)
             input.setValue(value)
             document.getElementById("jsonTips").innerHTML = ""
         } catch (err) {
             document.getElementById("jsonTips").innerHTML = "<span style='color: red;'>" + err.message + "</span>"
         }
+    }
+
+    // 因为要支持带注释的格式化，这个格式化之后的括号处理方式等与标准的不一样
+    function beautifyJSONStr(value) {
+        value = js_beautify(value, {
+            indent_size: 2,
+            brace_style: "collapse",
+            preserve_newlines: false,
+        });
+        return value
     }
 
     function formatJSONCompress() {
@@ -263,6 +266,7 @@
 
     function process() {
         document.getElementById("generate").disabled = true
+        output.setValue("")
         let value = input.getValue();
         try {
             JSON5.parse(value)
@@ -271,10 +275,7 @@
             document.getElementById("generate").disabled = false
             return
         }
-        value = js_beautify(value, {
-            indent_with_tabs: true,
-            preserve_newlines: false
-        });
+        value = beautifyJSONStr(value)
         var param = {
             jsonTag: document.getElementById("jsonTag").value,
         }
@@ -285,6 +286,7 @@
             param.mapstructureTag = document.getElementById("mapstructureTag").value
         }
         param.customTag = document.getElementById("customTag").value
+        // 入参是格式化的json
         param.jsonStr = value
         param.comment = getRadioValue("commentRadio")
         param.pointerFlag = getRadioValue("pointerRadio")
@@ -300,64 +302,41 @@
 
     function demo() {
         var json = `{
-	// 1.支持单行备注提取，可在上一行或行尾
-	"k1": "v1",
-	"k2": "v2", // 行尾备注
-	"k3": {
-		"k3_1": {
-			"k3_1_1": "" // 递归解析备注
-		}
-	},
-	"k4": [{ // 数组类型备注
-		"k41": ""
-	}, {
-		"k41": "" // 备注合并
-	}],
-	// 2.支持属性名格式化，支持中文
-	"地址": "山东枣庄",
-	"地质": "中文解析后重名了，自动数字编号",
-	"中文++))": "自动忽略不识别的字符",
-	"id": "golint代码检查优化",
-	"user_name": "",
-	"3只松鼠": "",
-	// 3.支持属性类型推断
-	"float": 1.15,
-	"arrayFloat": [1, 2.1],
-	"arrayObjFloat1": [{
-		"cost": 10
-	}, {
-		"cost": 10.2
-	}],
-	"arrayObjFloat2": [
-		[{
-			"cost": 10
-		}, {
-			"cost": 10.2
-		}]
-	],
-	// 4.支持对象属性合并
-	"questionArray": [{
-			"type": "select",
-			"props": {
-				"info": ""
-			},
-			"options": [],
-			"other": null
-		},
-		{
-			"type": "select",
-			"props": {
-				"info": "",
-				"value": ""
-			},
-			"options": [{
-				"label": "",
-				"value": ""
-			}],
-			"other": "",
-			"required": false
-		}
-	]
+  // 支持中文key
+  "地址": "",
+  "doc_url": "http://localhost", // golint命名优化
+  // 重名会在末尾进行递增编号
+  "docUrl": "http://localhost",
+  // 整形数字，小于等于int32设置为int，大于int32设置为int64
+  "int1": 1,
+  "int2": 3000000000,
+  // 浮点型数字，全部设置为float64
+  "float": 1.15,
+  // 如果是数组，会合并对象的属性和属性类型
+  "a": [
+    [{
+      // 这个a1对象属性不全，会合并数组内其他a1对象的属性
+      "a1": {
+        "a2": [{
+          "a3": "123" // 类型不同，判断为interface{}
+        }, {
+          "b3": ""
+        }]
+      }
+    }, {
+      "a1": {
+        "a2": [{
+          "a3": 123 // 类型不同，判断为interface{}
+        }, {
+          "c3": ""
+        }],
+        "b2": ""
+      },
+      "b1": {
+        "b2": ""
+      }
+    }]
+  ]
 }`
         input.setValue(json)
         process()
@@ -368,11 +347,11 @@
         document.getElementById("generate").onclick = function () {
             process()
         }
+        document.getElementById("jsonFormatWithComment").onclick = function () {
+            formatJSONWithComment()
+        }
         document.getElementById("jsonFormat").onclick = function () {
             formatJSON()
-        }
-        document.getElementById("jsonFormatNoComment").onclick = function () {
-            formatJSONNoComments()
         }
         document.getElementById("jsonCompress").onclick = function () {
             formatJSONCompress()

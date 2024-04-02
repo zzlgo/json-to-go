@@ -4,13 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
-	"regexp"
+	"json-to-go/jsonparser"
 	"strconv"
 	"strings"
 	"unicode"
-
-	"github.com/Lofanmi/pinyin-golang/pinyin"
-	"github.com/tidwall/gjson"
 )
 
 // 大类型 group
@@ -48,15 +45,6 @@ const (
 	MaxInt32    = 1<<31 - 1
 	MinInt32    = -1 << 31
 )
-
-// 判断 \g //
-var commentReg = regexp.MustCompile(`^(\t*)\s*(//[\s\S]*)$`)
-
-// 判断 \g k:t
-var kvReg = regexp.MustCompile(`^(\t*)\"(\S+){1}\": ([\s\S]+){1},?$`)
-
-// 判断 \g k:t // comment
-var kvcReg = regexp.MustCompile(`^(\t*)\"(\S+){1}\": ([\s\S]+){1},?\s*(//[\s\S]*)$`)
 
 // https://github.com/golang/lint/blob/master/lint.go
 var commonInitialisms = map[string]struct{}{
@@ -103,7 +91,7 @@ var commonInitialisms = map[string]struct{}{
 type Config struct {
 	// tags
 	Tags []string
-	// 0忽略备注，1生成单行备注 2生成行尾备注
+	// 0忽略注释，1生成单行注释 2生成行尾注释
 	Comment int
 	// 是否使用指针
 	PointerFlag bool
@@ -118,7 +106,7 @@ type Node struct {
 	t string
 	// 字段分组，所属大类型
 	g string
-	// 备注
+	// 注释
 	c string
 	// 嵌套结构
 	children *[]*Node
@@ -132,17 +120,24 @@ type Node struct {
 func Generate(jsonStr string, config *Config) (string, error) {
 	setJsonTag(config)
 	// 解析JSON
-	parsedJson := gjson.Parse(jsonStr)
-	parent := &Node{k: DefaultName}
-	if parsedJson.IsArray() {
-		parsedJson.ForEach(func(key, value gjson.Result) bool {
-			if value.IsObject() {
-				recursionNode(parent, value, config)
+	parent := NewNode(DefaultName, "", GroupO, "")
+	var err error
+	if jsonStr[0:1] == "[" {
+		err = jsonparser.ArrayEach([]byte(jsonStr), func(value []byte, dataType jsonparser.ValueType, offset int, comment []byte) (bool, error) {
+			if dataType == jsonparser.Object {
+				err = recursionNode(parent, value, config)
+				if err != nil {
+					return false, err
+				}
 			}
-			return true
+			return true, nil
 		})
 	} else {
-		recursionNode(parent, parsedJson, config)
+		err = recursionNode(parent, []byte(jsonStr), config)
+	}
+	if err != nil {
+		fmt.Println(err)
+		return err.Error(), err
 	}
 	// 合并数组内的对象和属性
 	mergeArrayNode(parent)
@@ -182,9 +177,22 @@ func Generate(jsonStr string, config *Config) (string, error) {
 	source, err := format.Source(buff.Bytes())
 	if err != nil {
 		fmt.Println(err)
-		return buff.String(), err
+		return err.Error(), err
 	}
 	return string(source), nil
+}
+
+func NewNode(k, t, g, c string) *Node {
+	node := &Node{
+		k: k,
+		t: t,
+		g: g,
+		c: c,
+	}
+	node.children = &[]*Node{}
+	node.childrenMerge = &[][]*Node{}
+	node.cache = make(map[string]int)
+	return node
 }
 
 func mergeArrayNode(parent *Node) {
@@ -196,29 +204,22 @@ func mergeArrayNode(parent *Node) {
 // nodes是一个属性
 func walkNode(nodes []*Node) *Node {
 	parent := mergeNode(nodes)
-	if parent.childrenMerge != nil {
-		for _, node := range *parent.childrenMerge {
-			addChildren(parent, walkNode(node))
-		}
+	for _, node := range *parent.childrenMerge {
+		addChildren(parent, walkNode(node))
 	}
 	return parent
 }
 
 func mergeNode(nodes []*Node) *Node {
-	if len(nodes) == 0 {
-		return nodes[0]
-	}
-	n := &Node{k: nodes[0].k}
+	n := NewNode(nodes[0].k, "", "", "")
 	group, t := mergeGroupAndType(nodes)
 	n.g = group
 	n.t = t
 	n.c = mergeComment(nodes)
 	for _, node := range nodes {
-		if node.childrenMerge != nil {
-			for _, n1 := range *node.childrenMerge {
-				for _, n2 := range n1 {
-					addChildrenMerge(n, n2)
-				}
+		for _, n1 := range *node.childrenMerge {
+			for _, n2 := range n1 {
+				addChildrenMerge(n, n2)
 			}
 		}
 	}
@@ -242,11 +243,12 @@ func setJsonTag(config *Config) {
 }
 
 func recursionAdd(all *[]*Node, node *Node) {
-	if node.children != nil && len(*node.children) > 0 {
+	// 支持没有属性的struct
+	if node.g == GroupO || node.g == GroupO1 || node.g == GroupO2 {
 		*all = append(*all, node)
-		for _, n := range *node.children {
-			recursionAdd(all, n)
-		}
+	}
+	for _, n := range *node.children {
+		recursionAdd(all, n)
 	}
 }
 
@@ -263,7 +265,7 @@ func recursionWrite(parent *Node, config *Config) string {
 		}
 		key := formatKey(nameMap, nameCount, node.k)
 		nestKey := key
-		if node.children != nil && len(*node.children) > 0 {
+		if len(*node.children) > 0 {
 			nestKey = recursionWrite(node, config)
 		}
 		if node.c != "" && config.Comment == Comment2 {
@@ -279,11 +281,12 @@ func recursionWrite(parent *Node, config *Config) string {
 func mergeComment(nodes []*Node) string {
 	comment := ""
 	for _, p := range nodes {
-		if p.c != "" {
-			comment += p.c + " "
+		// 注释可能是重复的，取第一个
+		if comment == "" && p.c != "" {
+			comment = p.c
 		}
 	}
-	return strings.Trim(comment, " ")
+	return comment
 }
 
 // 返回属性的类型，需要考虑大类型和小类型
@@ -400,8 +403,10 @@ func formatKey(nameMap map[string]string, nameCount map[string]int, key string) 
 		return e
 	}
 	result := ""
+	// 将驼峰式命名转换为下划线分割
+	newKey := convertToUnderline(key)
 	// 按下划线分割，每个片段的首字母大写
-	split := strings.Split(key, "_")
+	split := strings.Split(newKey, "_")
 	for i, str := range split {
 		span := ""
 		for j, v := range str {
@@ -412,7 +417,7 @@ func formatKey(nameMap map[string]string, nameCount map[string]int, key string) 
 				s = string(v)
 			} else if unicode.Is(unicode.Han, v) {
 				// 处理中文字符
-				s = convert2Pinyin(string(v))
+				s = convertToPinyin(string(v))
 			}
 			if s == "" {
 				continue
@@ -442,6 +447,25 @@ func formatKey(nameMap map[string]string, nameCount map[string]int, key string) 
 	return result
 }
 
+func convertToUnderline(key string) string {
+	var buffer bytes.Buffer
+	runes := []rune(key)
+	length := len(runes)
+	for i, r := range runes {
+		if unicode.IsUpper(r) {
+			if i > 0 && i+1 < length && unicode.IsLower(runes[i+1]) {
+				buffer.WriteRune('_')
+				buffer.WriteRune(unicode.ToLower(r))
+			} else {
+				buffer.WriteRune(r)
+			}
+		} else {
+			buffer.WriteRune(r)
+		}
+	}
+	return buffer.String()
+}
+
 func isLetter(r rune) bool {
 	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'
 }
@@ -451,9 +475,8 @@ func isDigit(r rune) bool {
 }
 
 // 中文字符转拼音首字母，返回小写
-func convert2Pinyin(s string) string {
-	s = pinyin.NewDict().Abbr(s, "")
-	return strings.ToLower(s)
+func convertToPinyin(s string) string {
+	return GetPinYin(s)
 }
 
 // 格式化完整的类型
@@ -490,91 +513,150 @@ func formatTag(key string, tag []string) string {
 	return result
 }
 
-func recursionNode(parent *Node, result1 gjson.Result, config *Config) {
-	cm := make(map[string]string)
-	if config.Comment != Comment0 {
-		cm = buildCommentMap(result1)
-	}
-	result1.ForEach(func(key1, value1 gjson.Result) bool {
-		if value1.Type == gjson.JSON {
-			if value1.IsArray() {
-				// 一维数组
-				if value1.Raw == "[]" {
-					addChildrenMerge(parent, &Node{k: key1.String(), t: TypeNil, g: GroupNil1, c: cm[key1.String()]})
-					return true
-				}
-				result2 := gjson.Parse(value1.Raw)
-				result2.ForEach(func(key2, value2 gjson.Result) bool {
-					if value2.Type == gjson.JSON {
-						if value2.IsArray() {
-							// 二维数组
-							if value2.Raw == "[]" {
-								addChildrenMerge(parent, &Node{k: key1.String(), t: TypeNil, g: GroupNil2, c: cm[key1.String()]})
-								return false
-							}
-							result3 := gjson.Parse(value2.Raw)
-							result3.ForEach(func(key3, value3 gjson.Result) bool {
-								if value3.Type == gjson.JSON {
-									if value3.IsObject() {
-										// [][]Object
-										node := &Node{k: key1.String(), t: key1.String(), g: GroupO2, c: cm[key1.String()]}
-										addChildrenMerge(parent, node)
-										arrayObj := getArrayObj(value2)
-										for _, obj := range arrayObj {
-											recursionNode(node, obj, config)
-										}
-										return false
-									}
-								} else {
-									// [][]Value
-									addChildrenMerge(parent, &Node{k: key1.String(), t: getJSONArrayType(&result3), g: GroupV2, c: cm[key1.String()]})
-									return false
-								}
-								return false
-							})
-						} else if value2.IsObject() {
-							// []Object
-							node := &Node{k: key1.String(), t: key1.String(), g: GroupO1, c: cm[key1.String()]}
-							addChildrenMerge(parent, node)
-							arrayObj := getArrayObj(value1)
-							for _, obj := range arrayObj {
-								recursionNode(node, obj, config)
-							}
-						}
-					} else {
-						// []Value
-						addChildrenMerge(parent, &Node{k: key1.String(), t: getJSONArrayType(&result2), g: GroupV1, c: cm[key1.String()]})
-					}
-					return false
-				})
-			} else if value1.IsObject() {
-				// Object
-				node := &Node{k: key1.String(), t: key1.String(), g: GroupO, c: cm[key1.String()]}
-				addChildrenMerge(parent, node)
-				recursionNode(node, value1, config)
-			}
-		} else {
-			// Value
-			addChildrenMerge(parent, &Node{k: key1.String(), t: getJSONType(value1), g: GroupV, c: cm[key1.String()]})
+func recursionNode(parent *Node, data []byte, config *Config) error {
+	var err error
+	var group, t, c string
+	var arrayObj [][]byte
+	err = jsonparser.ObjectEach(data, func(key []byte, value []byte, dataType jsonparser.ValueType, offset int, comment []byte) (flag bool, err error) {
+		group, err = getGroup(value, dataType)
+		if err != nil {
+			return false, err
 		}
-		return true
+		switch group {
+		case GroupV:
+			addChildrenMerge(parent, NewNode(string(key), getJSONType(value, dataType), group, string(comment)))
+		case GroupV1:
+			t, c, err = getJSONArrayType(value, 1)
+			if err != nil {
+				return false, err
+			}
+			// 优先使用数组的注释，不存在时，在使用从属性里提取出来的注释
+			if len(comment) > 0 {
+				c = string(comment)
+			}
+			addChildrenMerge(parent, NewNode(string(key), t, group, c))
+		case GroupV2:
+			t, c, err = getJSONArrayType(value, 2)
+			if err != nil {
+				return false, err
+			}
+			if len(comment) > 0 {
+				c = string(comment)
+			}
+			addChildrenMerge(parent, NewNode(string(key), t, group, c))
+		case GroupO:
+			node := NewNode(string(key), string(key), group, string(comment))
+			addChildrenMerge(parent, node)
+			err = recursionNode(node, value, config)
+			if err != nil {
+				return false, err
+			}
+		case GroupO1:
+			arrayObj, c, err = getArrayObj(value, 1)
+			if err != nil {
+				return false, err
+			}
+			if len(comment) > 0 {
+				c = string(comment)
+			}
+
+			node := NewNode(string(key), string(key), group, c)
+			addChildrenMerge(parent, node)
+
+			for _, obj := range arrayObj {
+				err = recursionNode(node, obj, config)
+				if err != nil {
+					return false, err
+				}
+			}
+		case GroupO2:
+			arrayObj, c, err = getArrayObj(value, 2)
+			if err != nil {
+				return false, err
+			}
+			if len(comment) > 0 {
+				c = string(comment)
+			}
+
+			node := NewNode(string(key), string(key), group, c)
+			addChildrenMerge(parent, node)
+
+			for _, obj := range arrayObj {
+				err = recursionNode(node, obj, config)
+				if err != nil {
+					return false, err
+				}
+			}
+		case GroupNil1:
+			addChildrenMerge(parent, NewNode(string(key), TypeNil, group, ""))
+		case GroupNil2:
+			addChildrenMerge(parent, NewNode(string(key), TypeNil, group, ""))
+		}
+		return true, nil
 	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func getGroup(value []byte, dataType jsonparser.ValueType) (string, error) {
+	group := ""
+	var err error
+	if dataType == jsonparser.Array {
+		count1 := 0
+		// 二维数组的第一个元素如果是空，继续判断
+		nextFlag := true
+		err = jsonparser.ArrayEach(value, func(value2 []byte, dataType2 jsonparser.ValueType, offset2 int, comment []byte) (flag bool, err error) {
+			count1++
+			if nextFlag {
+				if dataType2 == jsonparser.Object {
+					group = GroupO1
+					nextFlag = false
+				} else if dataType2 == jsonparser.Array {
+					count2 := 0
+					err = jsonparser.ArrayEach(value2, func(value3 []byte, dataType3 jsonparser.ValueType, offset3 int, comment []byte) (flag bool, err error) {
+						count2++
+						nextFlag = false
+						if dataType3 == jsonparser.Object {
+							group = GroupO2
+						} else {
+							group = GroupV2
+						}
+						return false, nil
+					})
+					if err != nil {
+						return false, err
+					}
+					if count1 == 1 && count2 == 0 {
+						group = GroupNil2
+					}
+				} else {
+					group = GroupV1
+					nextFlag = false
+				}
+			}
+			return nextFlag, nil
+		})
+		if err != nil {
+			return "", err
+		}
+		if count1 == 0 {
+			group = GroupNil1
+		}
+	} else if dataType == jsonparser.Object {
+		group = GroupO
+	} else {
+		group = GroupV
+	}
+	return group, nil
 }
 
 func addChildren(parent *Node, node *Node) {
-	if parent.children == nil {
-		children := make([]*Node, 0)
-		parent.children = &children
-	}
 	*parent.children = append(*parent.children, node)
 }
 
 func addChildrenMerge(parent *Node, node *Node) {
-	if parent.childrenMerge == nil {
-		children := make([][]*Node, 0)
-		parent.childrenMerge = &children
-		parent.cache = make(map[string]int)
-	}
 	if index, ok := parent.cache[node.k]; ok {
 		(*parent.childrenMerge)[index] = append((*parent.childrenMerge)[index], node)
 	} else {
@@ -584,81 +666,30 @@ func addChildrenMerge(parent *Node, node *Node) {
 	}
 }
 
-// 支持单行备注，每次都是全量按行遍历，根据前缀\t的个数，来决定是否是最外层对象的备注
-func buildCommentMap(result gjson.Result) map[string]string {
-	m := make(map[string]string)
-	raw := result.Raw
-	if !strings.Contains(raw, "//") {
-		return m
-	}
-	firstKey := ""
-	prefix := "-"
-	result.ForEach(func(key, value gjson.Result) bool {
-		firstKey = key.Str
-		return false
+// 获取数组内所有的对象
+func getArrayObj(data []byte, count int) (result [][]byte, c string, err error) {
+	err = jsonparser.ArrayEach(data, func(value []byte, dataType jsonparser.ValueType, offset int, comment []byte) (flag bool, err error) {
+		if count == 1 {
+			result = append(result, value)
+		} else {
+			err = jsonparser.ArrayEach(value, func(value2 []byte, dataType jsonparser.ValueType, offset int, comment []byte) (flag bool, err error) {
+				result = append(result, value2)
+				return true, nil
+			})
+			if err != nil {
+				return false, err
+			}
+		}
+		// 注释只提取外层的
+		if c == "" && string(comment) != "" {
+			c = string(comment)
+		}
+		return true, nil
 	})
-	split := strings.Split(raw, "\n")
-	// 判断第一个key的前缀，有几个\t
-	for _, s := range split {
-		resultKv := kvReg.FindStringSubmatch(s)
-		if len(resultKv) == 4 {
-			if resultKv[2] == firstKey {
-				prefix = resultKv[1]
-				break
-			}
-		}
-		resultKvc := kvcReg.FindStringSubmatch(s)
-		if len(resultKvc) == 5 {
-			if resultKvc[2] == firstKey {
-				prefix = resultKvc[1]
-				break
-			}
-		}
+	if err != nil {
+		return nil, c, err
 	}
-	if prefix == "-" {
-		// 没有解析到key
-		return m
-	}
-	k1 := prefix
-	k2 := prefix + "\t"
-	for i := 0; i < len(split); i++ {
-		s := split[i]
-		// 以\t开头的，先通过前缀筛选数据，然后在进行正则匹配
-		if strings.HasPrefix(s, k1) && !strings.HasPrefix(s, k2) {
-			// 1.在行的上一行进行备注，如  // 独立一行的备注
-			resultComment := commentReg.FindStringSubmatch(s)
-			if len(resultComment) == 3 {
-				// 判断下一行是不是json的kv
-				if i <= len(split)-2 {
-					next := split[i+1]
-					resultKv := kvReg.FindStringSubmatch(next)
-					if len(resultKv) == 4 {
-						m[resultKv[2]] = resultComment[2]
-						i++
-					}
-				}
-				continue
-			}
-			// 2.在行的末尾备注，如 k:v  // comment
-			resultKvc := kvcReg.FindStringSubmatch(s)
-			if len(resultKvc) == 5 {
-				m[resultKvc[2]] = resultKvc[4]
-			}
-		}
-	}
-	return m
-}
-
-// 获取数组内所有的对象，因为有的对象属性不全，所以将数组内对象全返回
-func getArrayObj(result gjson.Result) []gjson.Result {
-	var res []gjson.Result
-	result.ForEach(func(key, value gjson.Result) bool {
-		if value.IsObject() {
-			res = append(res, value)
-		}
-		return true
-	})
-	return res
+	return result, c, nil
 }
 
 // 合并多个type类型
@@ -727,37 +758,56 @@ func mergeFiledType(array []string, flag bool) string {
 	return TypeAny
 }
 
-// 获取json数组属性的类型
-func getJSONArrayType(rawArray *gjson.Result) string {
+// 合并数组内所有属性的类型
+func getJSONArrayType(data []byte, count int) (result string, c string, err error) {
 	// 通过数组来推断类型
-	array := rawArray.Array()
-	var result []string
-	for _, a := range array {
-		result = append(result, getJSONType(a))
+	var array []string
+	err = jsonparser.ArrayEach(data, func(value []byte, dataType jsonparser.ValueType, offset int, comment []byte) (flag bool, err error) {
+		if count == 1 {
+			jsonType := getJSONType(value, dataType)
+			array = append(array, jsonType)
+		} else {
+			err = jsonparser.ArrayEach(value, func(value2 []byte, dataType jsonparser.ValueType, offset int, comment []byte) (flag bool, err error) {
+				jsonType := getJSONType(value2, dataType)
+				array = append(array, jsonType)
+				return true, nil
+			})
+			if err != nil {
+				return false, err
+			}
+		}
+		// 注释只提取外层的
+		if c == "" && string(comment) != "" {
+			c = string(comment)
+		}
+		return true, nil
+	})
+	if err != nil {
+		return "", c, err
 	}
-	return mergeFiledType(result, true)
+	return mergeFiledType(array, true), c, nil
 }
 
 // 获取json属性的类型
-func getJSONType(value gjson.Result) string {
-	t := value.Type
+func getJSONType(value []byte, t jsonparser.ValueType) string {
 	str := TypeAny
-	if t == gjson.Number {
+	if t == jsonparser.Number {
 		str = TypeFloat64
-		i := value.Int()
-		if float64(i) == value.Float() {
+		v := string(value)
+		if !strings.Contains(v, ".") {
 			// 是整数
+			i, _ := strconv.Atoi(v)
 			if i >= MinInt32 && i <= MaxInt32 {
 				str = TypeInt
 			} else {
 				str = TypeInt64
 			}
 		}
-	} else if t == gjson.True || t == gjson.False {
+	} else if t == jsonparser.Boolean {
 		str = TypeBool
-	} else if t == gjson.String {
+	} else if t == jsonparser.String {
 		str = TypeString
-	} else if t == gjson.Null {
+	} else if t == jsonparser.Null {
 		str = TypeNil
 	}
 	return str
